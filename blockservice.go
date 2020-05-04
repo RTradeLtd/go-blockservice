@@ -16,7 +16,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var ErrNotFound = errors.New("blockservice: key not found")
+var (
+	// ErrNotFound is returned when the blockservice is unable to find the key
+	ErrNotFound = errors.New("blockservice: key not found")
+)
 
 // BlockGetter is the common interface shared between blockservice sessions and
 // the blockservice.
@@ -100,7 +103,6 @@ func (s *blockService) AddBlock(o blocks.Block) error {
 		return err
 	} else if !has {
 		// only announce if we do not have
-
 		doAnnounce = true
 	}
 
@@ -130,6 +132,7 @@ func (s *blockService) AddBlocks(bs []blocks.Block) error {
 		if has, err := s.blockstore.Has(b.Cid()); err != nil {
 			return err
 		} else if !has {
+			// only announce if we do not have
 			toAnnounce = append(toAnnounce, b)
 		}
 	}
@@ -138,7 +141,7 @@ func (s *blockService) AddBlocks(bs []blocks.Block) error {
 		return err
 	}
 
-	if s.exchange != nil && len(toAnnounce) > 0 {
+	if s.exchange != nil {
 		for _, o := range toAnnounce {
 			if err := s.exchange.HasBlock(o); err != nil {
 				s.logger.Error("HasBlock failed", zap.Error(err))
@@ -174,11 +177,9 @@ func getBlock(ctx context.Context, c cid.Cid, bs blockstore.Blockstore, fget fun
 	}
 
 	if err == blockstore.ErrNotFound && fget != nil {
-		f := fget() // Don't load the exchange until we have to
-
 		// TODO be careful checking ErrNotFound. If the underlying
 		// implementation changes, this will break.
-		blk, err := f.GetBlock(ctx, c)
+		blk, err := fget().GetBlock(ctx, c)
 		if err != nil {
 			if err == blockstore.ErrNotFound {
 				return nil, ErrNotFound
@@ -242,8 +243,7 @@ func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget
 			return
 		}
 
-		f := fget() // don't load exchange unless we have to
-		rblocks, err := f.GetBlocks(ctx, misses)
+		rblocks, err := fget().GetBlocks(ctx, misses)
 		if err != nil {
 			logger.Debug("failed to get blocks", zap.Error(err))
 			return

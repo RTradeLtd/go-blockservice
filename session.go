@@ -11,7 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
-var _ BlockGetter = (*Session)(nil)
+var (
+	_ BlockGetter = (*Session)(nil)
+)
 
 // Session is a helper type to provide higher level access to bitswap sessions
 type Session struct {
