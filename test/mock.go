@@ -1,7 +1,7 @@
 package bstest
 
 import (
-	. "github.com/ipfs/go-blockservice"
+	. "github.com/RTradeLtd/go-blockservice"
 
 	testinstance "github.com/ipfs/go-bitswap/testinstance"
 	tn "github.com/ipfs/go-bitswap/testnet"

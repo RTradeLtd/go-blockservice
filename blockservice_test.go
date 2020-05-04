@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	blockstore "github.com/RTradeLtd/go-ipfs-blockstore/v2"
 	blocks "github.com/ipfs/go-block-format"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
-	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	butil "github.com/ipfs/go-ipfs-blocksutil"
 	exchange "github.com/ipfs/go-ipfs-exchange-interface"
 	offline "github.com/ipfs/go-ipfs-exchange-offline"
