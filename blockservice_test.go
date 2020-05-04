@@ -4,23 +4,24 @@ import (
 	"context"
 	"testing"
 
+	blockstore "github.com/RTradeLtd/go-ipfs-blockstore/v2"
 	blocks "github.com/ipfs/go-block-format"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
-	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	butil "github.com/ipfs/go-ipfs-blocksutil"
 	exchange "github.com/ipfs/go-ipfs-exchange-interface"
 	offline "github.com/ipfs/go-ipfs-exchange-offline"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestWriteThroughWorks(t *testing.T) {
 	bstore := &PutCountingBlockstore{
-		blockstore.NewBlockstore(dssync.MutexWrap(ds.NewMapDatastore())),
+		blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore())),
 		0,
 	}
-	bstore2 := blockstore.NewBlockstore(dssync.MutexWrap(ds.NewMapDatastore()))
+	bstore2 := blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()))
 	exch := offline.Exchange(bstore2)
-	bserv := NewWriteThrough(bstore, exch)
+	bserv := NewWriteThrough(bstore, exch, zaptest.NewLogger(t))
 	bgen := butil.NewBlockGenerator()
 
 	block := bgen.Next()
@@ -48,13 +49,13 @@ func TestLazySessionInitialization(t *testing.T) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	bstore := blockstore.NewBlockstore(dssync.MutexWrap(ds.NewMapDatastore()))
-	bstore2 := blockstore.NewBlockstore(dssync.MutexWrap(ds.NewMapDatastore()))
-	bstore3 := blockstore.NewBlockstore(dssync.MutexWrap(ds.NewMapDatastore()))
+	bstore := blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()))
+	bstore2 := blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()))
+	bstore3 := blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()))
 	session := offline.Exchange(bstore2)
 	exchange := offline.Exchange(bstore3)
 	sessionExch := &fakeSessionExchange{Interface: exchange, session: session}
-	bservSessEx := NewWriteThrough(bstore, sessionExch)
+	bservSessEx := NewWriteThrough(bstore, sessionExch, zaptest.NewLogger(t))
 	bgen := butil.NewBlockGenerator()
 
 	block := bgen.Next()
@@ -68,7 +69,7 @@ func TestLazySessionInitialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bsession := NewSession(ctx, bservSessEx)
+	bsession := NewSession(ctx, bservSessEx, zaptest.NewLogger(t))
 	if bsession.ses != nil {
 		t.Fatal("Session exchange should not instantiated session immediately")
 	}

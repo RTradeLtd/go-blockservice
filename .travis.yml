@@ -1,0 +1,35 @@
+language: go
+
+go:
+  - 1.14.x
+
+os:
+  - linux
+
+env:
+  global:
+    - GO111MODULE=on
+    - GOPRIVATE=github.com/RTradeLtd/*
+    - DEV_LOGGING=true
+    - DEBUG_LOGGING=true
+    
+install:
+- go mod download
+
+before_script:
+- go get honnef.co/go/tools/cmd/staticcheck
+- go vet ./...
+- go build ./...
+- go test -run xxxx ./...
+
+script:
+- make verifiers
+- go test -race -short -coverprofile=coverage.txt ./...
+
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
+
+cache:
+  directories:
+    - $GOPATH/pkg/mod
+    - $HOME/.cache/go-build
