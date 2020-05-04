@@ -21,7 +21,7 @@ func TestWriteThroughWorks(t *testing.T) {
 	}
 	bstore2 := blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()))
 	exch := offline.Exchange(bstore2)
-	bserv := NewWriteThrough(bstore, exch, zaptest.NewLogger(t))
+	bserv := New(bstore, exch, zaptest.NewLogger(t))
 	bgen := butil.NewBlockGenerator()
 
 	block := bgen.Next()
@@ -55,7 +55,7 @@ func TestLazySessionInitialization(t *testing.T) {
 	session := offline.Exchange(bstore2)
 	exchange := offline.Exchange(bstore3)
 	sessionExch := &fakeSessionExchange{Interface: exchange, session: session}
-	bservSessEx := NewWriteThrough(bstore, sessionExch, zaptest.NewLogger(t))
+	bservSessEx := New(bstore, sessionExch, zaptest.NewLogger(t))
 	bgen := butil.NewBlockGenerator()
 
 	block := bgen.Next()

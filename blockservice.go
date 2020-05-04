@@ -61,9 +61,6 @@ type BlockService interface {
 type blockService struct {
 	blockstore blockstore.Blockstore
 	exchange   exchange.Interface
-	// If checkFirst is true then first check that a block doesn't
-	// already exist to avoid republishing the block on the exchange.
-	checkFirst bool
 	logger     *zap.Logger
 }
 
@@ -76,23 +73,7 @@ func New(bs blockstore.Blockstore, rem exchange.Interface, logger *zap.Logger) B
 	return &blockService{
 		blockstore: bs,
 		exchange:   rem,
-		checkFirst: true,
 		logger:     logger.Named("blockservice"),
-	}
-}
-
-// NewWriteThrough ceates a BlockService that guarantees writes will go
-// through to the blockstore and are not skipped by cache checks.
-func NewWriteThrough(bs blockstore.Blockstore, rem exchange.Interface, logger *zap.Logger) BlockService {
-	if rem == nil {
-		logger.Debug("blockservice running in local (offline) mode")
-	}
-
-	return &blockService{
-		blockstore: bs,
-		exchange:   rem,
-		checkFirst: false,
-		logger:     logger.Named("blockservice.write_through"),
 	}
 }
 
@@ -111,21 +92,23 @@ func (s *blockService) Exchange() exchange.Interface {
 func (s *blockService) AddBlock(o blocks.Block) error {
 	c := o.Cid()
 	// hash security
-	err := verifcid.ValidateCid(c)
-	if err != nil {
+	if err := verifcid.ValidateCid(c); err != nil {
 		return err
 	}
-	if s.checkFirst {
-		if has, err := s.blockstore.Has(c); has || err != nil {
-			return err
-		}
+	var doAnnounce bool
+	if has, err := s.blockstore.Has(c); err != nil {
+		return err
+	} else if !has {
+		// only announce if we do not have
+
+		doAnnounce = true
 	}
 
 	if err := s.blockstore.Put(o); err != nil {
 		return err
 	}
 
-	if s.exchange != nil {
+	if s.exchange != nil && doAnnounce {
 		if err := s.exchange.HasBlock(o); err != nil {
 			s.logger.Error("HasBlock failed", zap.Error(err))
 		}
@@ -137,38 +120,26 @@ func (s *blockService) AddBlock(o blocks.Block) error {
 func (s *blockService) AddBlocks(bs []blocks.Block) error {
 	// hash security
 	for _, b := range bs {
-		err := verifcid.ValidateCid(b.Cid())
-		if err != nil {
+		if err := verifcid.ValidateCid(b.Cid()); err != nil {
 			return err
 		}
 	}
-	var toput []blocks.Block
-	if s.checkFirst {
-		toput = make([]blocks.Block, 0, len(bs))
-		for _, b := range bs {
-			has, err := s.blockstore.Has(b.Cid())
-			if err != nil {
-				return err
-			}
-			if !has {
-				toput = append(toput, b)
-			}
+
+	var toAnnounce = make([]blocks.Block, len(bs))
+	for _, b := range bs {
+		if has, err := s.blockstore.Has(b.Cid()); err != nil {
+			return err
+		} else if !has {
+			toAnnounce = append(toAnnounce, b)
 		}
-	} else {
-		toput = bs
 	}
 
-	if len(toput) == 0 {
-		return nil
-	}
-
-	err := s.blockstore.PutMany(toput)
-	if err != nil {
+	if err := s.blockstore.PutMany(bs); err != nil {
 		return err
 	}
 
-	if s.exchange != nil {
-		for _, o := range toput {
+	if s.exchange != nil && len(toAnnounce) > 0 {
+		for _, o := range toAnnounce {
 			if err := s.exchange.HasBlock(o); err != nil {
 				s.logger.Error("HasBlock failed", zap.Error(err))
 			}
