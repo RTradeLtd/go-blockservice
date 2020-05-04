@@ -168,6 +168,7 @@ func TestLazySessionInitialization(t *testing.T) {
 			block2.Cid(),
 			block3.Cid(),
 			block4.Cid(),
+			// this shouldn't show up as it does not exist anywhere
 			bgen.Next().Cid(),
 		},
 	)
