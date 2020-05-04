@@ -42,6 +42,9 @@ func TestBlockservice(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := bserv.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGetBlocks(t *testing.T) {
