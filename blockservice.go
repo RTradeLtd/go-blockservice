@@ -12,7 +12,6 @@ import (
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
 	exchange "github.com/ipfs/go-ipfs-exchange-interface"
-	"github.com/ipfs/go-verifcid"
 	"go.uber.org/zap"
 )
 
@@ -93,13 +92,8 @@ func (s *blockService) Exchange() exchange.Interface {
 // AddBlock adds a particular block to the service, Putting it into the datastore.
 // TODO pass a context into this if the remote.HasBlock is going to remain here.
 func (s *blockService) AddBlock(o blocks.Block) error {
-	c := o.Cid()
-	// hash security
-	if err := verifcid.ValidateCid(c); err != nil {
-		return err
-	}
 	var doAnnounce bool
-	if has, err := s.blockstore.Has(c); err != nil {
+	if has, err := s.blockstore.Has(o.Cid()); err != nil {
 		return err
 	} else if !has {
 		// only announce if we do not have
@@ -120,13 +114,6 @@ func (s *blockService) AddBlock(o blocks.Block) error {
 }
 
 func (s *blockService) AddBlocks(bs []blocks.Block) error {
-	// hash security
-	for _, b := range bs {
-		if err := verifcid.ValidateCid(b.Cid()); err != nil {
-			return err
-		}
-	}
-
 	var toAnnounce = make([]blocks.Block, 0, len(bs))
 	for _, b := range bs {
 		if has, err := s.blockstore.Has(b.Cid()); err != nil {
@@ -166,11 +153,6 @@ func (s *blockService) getExchange() exchange.Fetcher {
 }
 
 func getBlock(ctx context.Context, c cid.Cid, bs blockstore.Blockstore, fget func() exchange.Fetcher) (blocks.Block, error) {
-	err := verifcid.ValidateCid(c) // hash security
-	if err != nil {
-		return nil, err
-	}
-
 	block, err := bs.Get(c)
 	if err == nil {
 		return block, nil
@@ -211,19 +193,6 @@ func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget
 
 	go func() {
 		defer close(out)
-
-		k := 0
-		for _, c := range ks {
-			// hash security
-			if err := verifcid.ValidateCid(c); err == nil {
-				ks[k] = c
-				k++
-			} else {
-				logger.Error("unsafe CID passed into blockservice", zap.String("cid", c.String()), zap.Error(err))
-			}
-		}
-		ks = ks[:k]
-
 		var misses []cid.Cid
 		for _, c := range ks {
 			hit, err := bs.Get(c)

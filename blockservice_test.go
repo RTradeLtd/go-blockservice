@@ -6,6 +6,7 @@ import (
 
 	blockstore "github.com/RTradeLtd/go-ipfs-blockstore/v2"
 	blocks "github.com/ipfs/go-block-format"
+	cid "github.com/ipfs/go-cid"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	butil "github.com/ipfs/go-ipfs-blocksutil"
@@ -36,6 +37,8 @@ func TestBlockservice(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// now test hash security
+	blocks.NewBlockWithCid([]byte("hello"), cid.Undef)
 }
 
 func TestWriteThroughWorks(t *testing.T) {
