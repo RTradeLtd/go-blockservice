@@ -151,6 +151,12 @@ func TestLazySessionInitialization(t *testing.T) {
 	if bsession.ses != session {
 		t.Fatal("Should have initialized session to fetch block")
 	}
+	blockChan := bsession.GetBlocks(ctx, []cid.Cid{block.Cid(), block2.Cid()})
+	for blk := range blockChan {
+		if blk.Cid() != block.Cid() && blk.Cid() != block2.Cid() {
+			t.Fatal("bad block found")
+		}
+	}
 }
 
 var _ blockstore.Blockstore = (*PutCountingBlockstore)(nil)
