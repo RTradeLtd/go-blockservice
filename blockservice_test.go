@@ -14,6 +14,30 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+func TestBlockservice(t *testing.T) {
+	bs := blockstore.NewBlockstore(
+		zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()),
+	)
+	exch := offline.Exchange(bs)
+	bserv := New(bs, exch, zaptest.NewLogger(t))
+	bgen := butil.NewBlockGenerator()
+	for i := 0; i < 2; i++ {
+		block := bgen.Next()
+		if err := bserv.AddBlock(block); err != nil {
+			t.Fatal(err)
+		}
+		if err := bserv.AddBlocks([]blocks.Block{block, bgen.Next()}); err != nil {
+			t.Fatal(err)
+		}
+		if err := bserv.DeleteBlock(block.Cid()); err != nil {
+			t.Fatal(err)
+		}
+		if err := bserv.AddBlocks([]blocks.Block{block, bgen.Next()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestWriteThroughWorks(t *testing.T) {
 	bstore := &PutCountingBlockstore{
 		blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore())),
@@ -42,6 +66,7 @@ func TestWriteThroughWorks(t *testing.T) {
 	if bstore.PutCounter != 2 {
 		t.Fatalf("Put should have called again, should be 2 is: %d", bstore.PutCounter)
 	}
+
 }
 
 func TestLazySessionInitialization(t *testing.T) {

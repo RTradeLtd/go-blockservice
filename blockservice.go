@@ -127,7 +127,7 @@ func (s *blockService) AddBlocks(bs []blocks.Block) error {
 		}
 	}
 
-	var toAnnounce = make([]blocks.Block, len(bs))
+	var toAnnounce = make([]blocks.Block, 0, len(bs))
 	for _, b := range bs {
 		if has, err := s.blockstore.Has(b.Cid()); err != nil {
 			return err
@@ -180,10 +180,9 @@ func getBlock(ctx context.Context, c cid.Cid, bs blockstore.Blockstore, fget fun
 		// TODO be careful checking ErrNotFound. If the underlying
 		// implementation changes, this will break.
 		blk, err := fget().GetBlock(ctx, c)
-		if err != nil {
-			if err == blockstore.ErrNotFound {
-				return nil, ErrNotFound
-			}
+		if err != nil && err == blockstore.ErrNotFound {
+			return nil, ErrNotFound
+		} else if err != nil {
 			return nil, err
 		}
 		return blk, nil
@@ -262,8 +261,7 @@ func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget
 
 // DeleteBlock deletes a block in the blockservice from the datastore
 func (s *blockService) DeleteBlock(c cid.Cid) error {
-	err := s.blockstore.DeleteBlock(c)
-	return err
+	return s.blockstore.DeleteBlock(c)
 }
 
 func (s *blockService) Close() error {
