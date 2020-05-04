@@ -154,9 +154,28 @@ func TestLazySessionInitialization(t *testing.T) {
 	if bsession.ses != session {
 		t.Fatal("Should have initialized session to fetch block")
 	}
-	blockChan := bsession.GetBlocks(ctx, []cid.Cid{block.Cid(), block2.Cid()})
+	block3 := bgen.Next()
+	if err := bstore2.Put(block3); err != nil {
+		t.Fatal(err)
+	}
+	block4 := bgen.Next()
+	if err := bstore3.Put(block4); err != nil {
+		t.Fatal(err)
+	}
+	blockChan := bsession.GetBlocks(
+		ctx,
+		[]cid.Cid{block.Cid(),
+			block2.Cid(),
+			block3.Cid(),
+			block4.Cid(),
+			bgen.Next().Cid(),
+		},
+	)
 	for blk := range blockChan {
-		if blk.Cid() != block.Cid() && blk.Cid() != block2.Cid() {
+		switch blk.Cid() {
+		case block.Cid(), block2.Cid(), block3.Cid(), block4.Cid():
+			break
+		default:
 			t.Fatal("bad block found")
 		}
 	}
