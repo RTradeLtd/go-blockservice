@@ -8,6 +8,7 @@ import (
 	"time"
 
 	. "github.com/RTradeLtd/go-blockservice"
+	"go.uber.org/zap/zaptest"
 
 	blockstore "github.com/RTradeLtd/go-ipfs-blockstore/v2"
 	blocks "github.com/ipfs/go-block-format"
@@ -23,8 +24,8 @@ func newObject(data []byte) blocks.Block {
 }
 
 func TestBlocks(t *testing.T) {
-	bstore := blockstore.NewBlockstore(dssync.MutexWrap(ds.NewMapDatastore()))
-	bs := New(bstore, offline.Exchange(bstore))
+	bstore := blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()))
+	bs := New(bstore, offline.Exchange(bstore), zaptest.NewLogger(t))
 	defer bs.Close()
 
 	o := newObject([]byte("beep boop"))

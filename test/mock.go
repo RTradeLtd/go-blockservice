@@ -2,6 +2,7 @@ package bstest
 
 import (
 	. "github.com/RTradeLtd/go-blockservice"
+	"go.uber.org/zap"
 
 	testinstance "github.com/ipfs/go-bitswap/testinstance"
 	tn "github.com/ipfs/go-bitswap/testnet"
@@ -18,7 +19,7 @@ func Mocks(n int) []BlockService {
 
 	var servs []BlockService
 	for _, i := range instances {
-		servs = append(servs, New(i.Blockstore(), i.Exchange))
+		servs = append(servs, New(i.Blockstore(), i.Exchange, zap.NewNop()))
 	}
 	return servs
 }

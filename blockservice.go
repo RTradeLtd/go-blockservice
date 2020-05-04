@@ -7,17 +7,14 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
 
 	blockstore "github.com/RTradeLtd/go-ipfs-blockstore/v2"
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
 	exchange "github.com/ipfs/go-ipfs-exchange-interface"
-	logging "github.com/ipfs/go-log"
 	"github.com/ipfs/go-verifcid"
+	"go.uber.org/zap"
 )
-
-var log = logging.Logger("blockservice")
 
 var ErrNotFound = errors.New("blockservice: key not found")
 
@@ -67,32 +64,35 @@ type blockService struct {
 	// If checkFirst is true then first check that a block doesn't
 	// already exist to avoid republishing the block on the exchange.
 	checkFirst bool
+	logger     *zap.Logger
 }
 
-// NewBlockService creates a BlockService with given datastore instance.
-func New(bs blockstore.Blockstore, rem exchange.Interface) BlockService {
+// New creates a BlockService with given datastore instance.
+func New(bs blockstore.Blockstore, rem exchange.Interface, logger *zap.Logger) BlockService {
 	if rem == nil {
-		log.Debug("blockservice running in local (offline) mode.")
+		logger.Debug("blockservice running in local (offline) mode")
 	}
 
 	return &blockService{
 		blockstore: bs,
 		exchange:   rem,
 		checkFirst: true,
+		logger:     logger.Named("blockservice"),
 	}
 }
 
 // NewWriteThrough ceates a BlockService that guarantees writes will go
 // through to the blockstore and are not skipped by cache checks.
-func NewWriteThrough(bs blockstore.Blockstore, rem exchange.Interface) BlockService {
+func NewWriteThrough(bs blockstore.Blockstore, rem exchange.Interface, logger *zap.Logger) BlockService {
 	if rem == nil {
-		log.Debug("blockservice running in local (offline) mode.")
+		logger.Debug("blockservice running in local (offline) mode")
 	}
 
 	return &blockService{
 		blockstore: bs,
 		exchange:   rem,
 		checkFirst: false,
+		logger:     logger.Named("blockservice.write_through"),
 	}
 }
 
@@ -104,28 +104,6 @@ func (s *blockService) Blockstore() blockstore.Blockstore {
 // Exchange returns the exchange behind this blockservice.
 func (s *blockService) Exchange() exchange.Interface {
 	return s.exchange
-}
-
-// NewSession creates a new session that allows for
-// controlled exchange of wantlists to decrease the bandwidth overhead.
-// If the current exchange is a SessionExchange, a new exchange
-// session will be created. Otherwise, the current exchange will be used
-// directly.
-func NewSession(ctx context.Context, bs BlockService) *Session {
-	exch := bs.Exchange()
-	if sessEx, ok := exch.(exchange.SessionExchange); ok {
-		return &Session{
-			sessCtx: ctx,
-			ses:     nil,
-			sessEx:  sessEx,
-			bs:      bs.Blockstore(),
-		}
-	}
-	return &Session{
-		ses:     exch,
-		sessCtx: ctx,
-		bs:      bs.Blockstore(),
-	}
 }
 
 // AddBlock adds a particular block to the service, Putting it into the datastore.
@@ -147,11 +125,9 @@ func (s *blockService) AddBlock(o blocks.Block) error {
 		return err
 	}
 
-	log.Event(context.TODO(), "BlockService.BlockAdded", c)
-
 	if s.exchange != nil {
 		if err := s.exchange.HasBlock(o); err != nil {
-			log.Errorf("HasBlock: %s", err.Error())
+			s.logger.Error("HasBlock failed", zap.Error(err))
 		}
 	}
 
@@ -193,9 +169,8 @@ func (s *blockService) AddBlocks(bs []blocks.Block) error {
 
 	if s.exchange != nil {
 		for _, o := range toput {
-			log.Event(context.TODO(), "BlockService.BlockAdded", o.Cid())
 			if err := s.exchange.HasBlock(o); err != nil {
-				log.Errorf("HasBlock: %s", err.Error())
+				s.logger.Error("HasBlock failed", zap.Error(err))
 			}
 		}
 	}
@@ -205,14 +180,11 @@ func (s *blockService) AddBlocks(bs []blocks.Block) error {
 // GetBlock retrieves a particular block from the service,
 // Getting it from the datastore using the key (hash).
 func (s *blockService) GetBlock(ctx context.Context, c cid.Cid) (blocks.Block, error) {
-	log.Debugf("BlockService GetBlock: '%s'", c)
-
 	var f func() exchange.Fetcher
 	if s.exchange != nil {
 		f = s.getExchange
 	}
-
-	return getBlock(ctx, c, s.blockstore, f) // hash security
+	return getBlock(ctx, c, s.blockstore, f)
 }
 
 func (s *blockService) getExchange() exchange.Fetcher {
@@ -235,7 +207,6 @@ func getBlock(ctx context.Context, c cid.Cid, bs blockstore.Blockstore, fget fun
 
 		// TODO be careful checking ErrNotFound. If the underlying
 		// implementation changes, this will break.
-		log.Debug("Blockservice: Searching bitswap")
 		blk, err := f.GetBlock(ctx, c)
 		if err != nil {
 			if err == blockstore.ErrNotFound {
@@ -243,11 +214,8 @@ func getBlock(ctx context.Context, c cid.Cid, bs blockstore.Blockstore, fget fun
 			}
 			return nil, err
 		}
-		log.Event(ctx, "BlockService.BlockFetched", c)
 		return blk, nil
 	}
-
-	log.Debug("Blockservice GetBlock: Not found")
 	if err == blockstore.ErrNotFound {
 		return nil, ErrNotFound
 	}
@@ -264,10 +232,10 @@ func (s *blockService) GetBlocks(ctx context.Context, ks []cid.Cid) <-chan block
 		f = s.getExchange
 	}
 
-	return getBlocks(ctx, ks, s.blockstore, f) // hash security
+	return getBlocks(ctx, ks, s.blockstore, f, s.logger)
 }
 
-func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget func() exchange.Fetcher) <-chan blocks.Block {
+func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget func() exchange.Fetcher, logger *zap.Logger) <-chan blocks.Block {
 	out := make(chan blocks.Block)
 
 	go func() {
@@ -280,7 +248,7 @@ func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget
 				ks[k] = c
 				k++
 			} else {
-				log.Errorf("unsafe CID (%s) passed to blockService.GetBlocks: %s", c, err)
+				logger.Error("unsafe CID passed into blockservice", zap.String("cid", c.String()), zap.Error(err))
 			}
 		}
 		ks = ks[:k]
@@ -306,12 +274,11 @@ func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget
 		f := fget() // don't load exchange unless we have to
 		rblocks, err := f.GetBlocks(ctx, misses)
 		if err != nil {
-			log.Debugf("Error with GetBlocks: %s", err)
+			logger.Debug("failed to get blocks", zap.Error(err))
 			return
 		}
 
 		for b := range rblocks {
-			log.Event(ctx, "BlockService.BlockFetched", b.Cid())
 			select {
 			case out <- b:
 			case <-ctx.Done():
@@ -325,44 +292,9 @@ func getBlocks(ctx context.Context, ks []cid.Cid, bs blockstore.Blockstore, fget
 // DeleteBlock deletes a block in the blockservice from the datastore
 func (s *blockService) DeleteBlock(c cid.Cid) error {
 	err := s.blockstore.DeleteBlock(c)
-	if err == nil {
-		log.Event(context.TODO(), "BlockService.BlockDeleted", c)
-	}
 	return err
 }
 
 func (s *blockService) Close() error {
-	log.Debug("blockservice is shutting down...")
 	return s.exchange.Close()
 }
-
-// Session is a helper type to provide higher level access to bitswap sessions
-type Session struct {
-	bs      blockstore.Blockstore
-	ses     exchange.Fetcher
-	sessEx  exchange.SessionExchange
-	sessCtx context.Context
-	lk      sync.Mutex
-}
-
-func (s *Session) getSession() exchange.Fetcher {
-	s.lk.Lock()
-	defer s.lk.Unlock()
-	if s.ses == nil {
-		s.ses = s.sessEx.NewSession(s.sessCtx)
-	}
-
-	return s.ses
-}
-
-// GetBlock gets a block in the context of a request session
-func (s *Session) GetBlock(ctx context.Context, c cid.Cid) (blocks.Block, error) {
-	return getBlock(ctx, c, s.bs, s.getSession) // hash security
-}
-
-// GetBlocks gets blocks in the context of a request session
-func (s *Session) GetBlocks(ctx context.Context, ks []cid.Cid) <-chan blocks.Block {
-	return getBlocks(ctx, ks, s.bs, s.getSession) // hash security
-}
-
-var _ BlockGetter = (*Session)(nil)
