@@ -175,7 +175,7 @@ func TestLazySessionInitialization(t *testing.T) {
 	for blk := range blockChan {
 		switch blk.Cid() {
 		case block.Cid(), block2.Cid(), block3.Cid(), block4.Cid():
-			break
+			continue
 		default:
 			t.Fatal("bad block found")
 		}
