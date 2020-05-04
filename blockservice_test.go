@@ -27,6 +27,11 @@ func TestBlockservice(t *testing.T) {
 		if err := bserv.AddBlock(block); err != nil {
 			t.Fatal(err)
 		}
+		if testBlock, err := bserv.GetBlock(context.Background(), block.Cid()); err != nil {
+			t.Fatal(err)
+		} else if testBlock.Cid() != block.Cid() {
+			t.Fatal("bad block returned")
+		}
 		if err := bserv.AddBlocks([]blocks.Block{block, bgen.Next()}); err != nil {
 			t.Fatal(err)
 		}
@@ -37,8 +42,33 @@ func TestBlockservice(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// now test hash security
-	blocks.NewBlockWithCid([]byte("hello"), cid.Undef)
+}
+
+func TestGetBlocks(t *testing.T) {
+	bs := blockstore.NewBlockstore(
+		zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()),
+	)
+	exch := offline.Exchange(bs)
+	bserv := New(bs, exch, zaptest.NewLogger(t))
+	bgen := butil.NewBlockGenerator()
+	var (
+		cids    []cid.Cid
+		wantCid = make(map[cid.Cid]bool)
+	)
+	for i := 0; i < 5; i++ {
+		block := bgen.Next()
+		if err := bserv.AddBlock(block); err != nil {
+			t.Fatal(err)
+		}
+		cids = append(cids, block.Cid())
+		wantCid[block.Cid()] = true
+	}
+	blocks := bserv.GetBlocks(context.Background(), cids)
+	for block := range blocks {
+		if !wantCid[block.Cid()] {
+			t.Fatal("bad block count")
+		}
+	}
 }
 
 func TestWriteThroughWorks(t *testing.T) {
