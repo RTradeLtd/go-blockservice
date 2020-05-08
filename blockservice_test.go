@@ -6,6 +6,7 @@ import (
 
 	blockstore "github.com/RTradeLtd/go-ipfs-blockstore/v2"
 	blocks "github.com/ipfs/go-block-format"
+	cid "github.com/ipfs/go-cid"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	butil "github.com/ipfs/go-ipfs-blocksutil"
@@ -14,6 +15,65 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+func TestBlockservice(t *testing.T) {
+	bs := blockstore.NewBlockstore(
+		zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()),
+	)
+	exch := offline.Exchange(bs)
+	bserv := New(bs, exch, zaptest.NewLogger(t))
+	bgen := butil.NewBlockGenerator()
+	for i := 0; i < 2; i++ {
+		block := bgen.Next()
+		if err := bserv.AddBlock(block); err != nil {
+			t.Fatal(err)
+		}
+		if testBlock, err := bserv.GetBlock(context.Background(), block.Cid()); err != nil {
+			t.Fatal(err)
+		} else if testBlock.Cid() != block.Cid() {
+			t.Fatal("bad block returned")
+		}
+		if err := bserv.AddBlocks([]blocks.Block{block, bgen.Next()}); err != nil {
+			t.Fatal(err)
+		}
+		if err := bserv.DeleteBlock(block.Cid()); err != nil {
+			t.Fatal(err)
+		}
+		if err := bserv.AddBlocks([]blocks.Block{block, bgen.Next()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := bserv.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGetBlocks(t *testing.T) {
+	bs := blockstore.NewBlockstore(
+		zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()),
+	)
+	exch := offline.Exchange(bs)
+	bserv := New(bs, exch, zaptest.NewLogger(t))
+	bgen := butil.NewBlockGenerator()
+	var (
+		cids    []cid.Cid
+		wantCid = make(map[cid.Cid]bool)
+	)
+	for i := 0; i < 5; i++ {
+		block := bgen.Next()
+		if err := bserv.AddBlock(block); err != nil {
+			t.Fatal(err)
+		}
+		cids = append(cids, block.Cid())
+		wantCid[block.Cid()] = true
+	}
+	blocks := bserv.GetBlocks(context.Background(), cids)
+	for block := range blocks {
+		if !wantCid[block.Cid()] {
+			t.Fatal("bad block count")
+		}
+	}
+}
+
 func TestWriteThroughWorks(t *testing.T) {
 	bstore := &PutCountingBlockstore{
 		blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore())),
@@ -21,7 +81,7 @@ func TestWriteThroughWorks(t *testing.T) {
 	}
 	bstore2 := blockstore.NewBlockstore(zaptest.NewLogger(t), dssync.MutexWrap(ds.NewMapDatastore()))
 	exch := offline.Exchange(bstore2)
-	bserv := NewWriteThrough(bstore, exch, zaptest.NewLogger(t))
+	bserv := New(bstore, exch, zaptest.NewLogger(t))
 	bgen := butil.NewBlockGenerator()
 
 	block := bgen.Next()
@@ -42,6 +102,7 @@ func TestWriteThroughWorks(t *testing.T) {
 	if bstore.PutCounter != 2 {
 		t.Fatalf("Put should have called again, should be 2 is: %d", bstore.PutCounter)
 	}
+
 }
 
 func TestLazySessionInitialization(t *testing.T) {
@@ -55,7 +116,7 @@ func TestLazySessionInitialization(t *testing.T) {
 	session := offline.Exchange(bstore2)
 	exchange := offline.Exchange(bstore3)
 	sessionExch := &fakeSessionExchange{Interface: exchange, session: session}
-	bservSessEx := NewWriteThrough(bstore, sessionExch, zaptest.NewLogger(t))
+	bservSessEx := New(bstore, sessionExch, zaptest.NewLogger(t))
 	bgen := butil.NewBlockGenerator()
 
 	block := bgen.Next()
@@ -93,6 +154,32 @@ func TestLazySessionInitialization(t *testing.T) {
 	if bsession.ses != session {
 		t.Fatal("Should have initialized session to fetch block")
 	}
+	block3 := bgen.Next()
+	if err := bstore2.Put(block3); err != nil {
+		t.Fatal(err)
+	}
+	block4 := bgen.Next()
+	if err := bstore3.Put(block4); err != nil {
+		t.Fatal(err)
+	}
+	blockChan := bsession.GetBlocks(
+		ctx,
+		[]cid.Cid{block.Cid(),
+			block2.Cid(),
+			block3.Cid(),
+			block4.Cid(),
+			// this shouldn't show up as it does not exist anywhere
+			bgen.Next().Cid(),
+		},
+	)
+	for blk := range blockChan {
+		switch blk.Cid() {
+		case block.Cid(), block2.Cid(), block3.Cid(), block4.Cid():
+			continue
+		default:
+			t.Fatal("bad block found")
+		}
+	}
 }
 
 var _ blockstore.Blockstore = (*PutCountingBlockstore)(nil)
@@ -105,6 +192,11 @@ type PutCountingBlockstore struct {
 func (bs *PutCountingBlockstore) Put(block blocks.Block) error {
 	bs.PutCounter++
 	return bs.Blockstore.Put(block)
+}
+
+func (bs *PutCountingBlockstore) PutMany(blks []blocks.Block) error {
+	bs.PutCounter += len(blks)
+	return bs.Blockstore.PutMany(blks)
 }
 
 var _ exchange.SessionExchange = (*fakeSessionExchange)(nil)
