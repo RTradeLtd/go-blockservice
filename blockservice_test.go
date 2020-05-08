@@ -194,6 +194,11 @@ func (bs *PutCountingBlockstore) Put(block blocks.Block) error {
 	return bs.Blockstore.Put(block)
 }
 
+func (bs *PutCountingBlockstore) PutMany(blks []blocks.Block) error {
+	bs.PutCounter += len(blks)
+	return bs.Blockstore.PutMany(blks)
+}
+
 var _ exchange.SessionExchange = (*fakeSessionExchange)(nil)
 
 type fakeSessionExchange struct {
