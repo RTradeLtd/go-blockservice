@@ -92,25 +92,7 @@ func (s *blockService) Exchange() exchange.Interface {
 // AddBlock adds a particular block to the service, Putting it into the datastore.
 // TODO pass a context into this if the remote.HasBlock is going to remain here.
 func (s *blockService) AddBlock(o blocks.Block) error {
-	var doAnnounce bool
-	if has, err := s.blockstore.Has(o.Cid()); err != nil {
-		return err
-	} else if !has {
-		// only announce if we do not have
-		doAnnounce = true
-	}
-
-	if err := s.blockstore.Put(o); err != nil {
-		return err
-	}
-
-	if s.exchange != nil && doAnnounce {
-		if err := s.exchange.HasBlock(o); err != nil {
-			s.logger.Error("HasBlock failed", zap.Error(err))
-		}
-	}
-
-	return nil
+	return s.AddBlocks([]blocks.Block{o})
 }
 
 func (s *blockService) AddBlocks(bs []blocks.Block) error {
